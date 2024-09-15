@@ -13,35 +13,37 @@ If there is at least a pair of peepl in a city, there is a chance for a new born
 ```sh
 $ cargo run
 sim step 0
-(8, 8)  World population is 45:
-{Carpenter, 25%, 13} {Miller, 25%, 11} {Woodcutter, 50%, 21}
-cpcfppfp
-fcfcpppf
-pppffcff
-fpcffpff
-ffffffff
-fffccfpf
-fffffpff
-ppfffffc
+(8, 8)  World population is 10:
+{Carpenter, 25%, 1} {Miller, 25%, 0} {Woodcutter, 50%, 9}
+fpfpfpfp
+fpfffffp
+ppffffpf
+ffcpffff
+ffffpfff
+ppfffpff
+fffffcff
+ffpfffff
 
+there were 0 pairs of peepl in 2 cities
 0 newborns during sim step 0
-Simulation step 0 took... 2.6451ms
+Simulation step 0 took... 224.8µs
 
-$ \n
+
 sim step 1
-(8, 8)  World population is 45:
-{Carpenter, 25%, 13} {Miller, 25%, 11} {Woodcutter, 50%, 21}
-cpcfppfp
-fcfcpppf
-pppffcff
-fpcffpff
-ffffffff
-fffccfpf
-fffffpff
-ppfffffc
+(8, 8)  World population is 10:
+{Carpenter, 25%, 1} {Miller, 25%, 0} {Woodcutter, 50%, 9}
+fpfpfpfp
+fpfffffp
+ppffffpf
+ffcpffff
+ffffpfff
+ppfffpff
+fffffcff
+ffpfffff
 
+there were 0 pairs of peepl in 2 cities
 0 newborns during sim step 1
-Simulation step 1 took... 3.1119ms
+Simulation step 1 took... 229.1µs
 $ q
 $ 
 ```
