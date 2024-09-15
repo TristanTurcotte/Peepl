@@ -122,49 +122,27 @@ impl WorldTiles {
         &mut self.tiles[index]
     }
 
-    fn find_nearest_item(&self, from_pos: (i64, i64), looking_for: Objects, ignore_tile_kind: TileType) -> (i64, i64) {
-        let mut checked: HashSet<(i64, i64)> = HashSet::with_capacity(self.size.0 * self.size.1); // don't like this lazy way, but I couldn't figure it out, just wanted something that worked
-        for distance in 0..self.size.0 as i64 {
-            for off_y in -distance..distance+1 {
-                let cursor_y = from_pos.1 + off_y;
-                if cursor_y < 0 || cursor_y >= self.size.1 as i64 { continue; }
-                for off_x in -distance..distance+1 {
-                    let cursor_x = from_pos.0 + off_x;
-                    if cursor_x < 0 || cursor_x >= self.size.0 as i64 { continue; }
-                    if checked.contains(&(off_x, off_y)) { continue; } // yeah...
-                    else { checked.insert((off_x, off_y)); }
+    fn find_nearest<F>(&self, from_pos: (i64, i64), check: F) -> (i64, i64)
+        where F: Fn(&Tile) -> bool  {
+            let mut checked: HashSet<(i64, i64)> = HashSet::with_capacity(self.size.0 * self.size.1); // don't like this lazy way, but I couldn't figure it out, just wanted something that worked
+            for distance in 0..self.size.0 as i64 {
+                for off_y in -distance..distance+1 {
+                    let cursor_y = from_pos.1 + off_y;
+                    if cursor_y < 0 || cursor_y >= self.size.1 as i64 { continue; }
+                    for off_x in -distance..distance+1 {
+                        let cursor_x = from_pos.0 + off_x;
+                        if cursor_x < 0 || cursor_x >= self.size.0 as i64 { continue; }
+                        if checked.contains(&(off_x, off_y)) { continue; } // yeah...
+                        else { checked.insert((off_x, off_y)); }
 
-                    let cursor_tile = self.get_tile_at_pos(cursor_x, cursor_y);
-                    if cursor_tile.kind == ignore_tile_kind { continue; }
-                    else if cursor_tile.check_inventory(looking_for) {
-                        return (cursor_x, cursor_y);
+                        let cursor_tile = self.get_tile_at_pos(cursor_x, cursor_y);
+                        if check(cursor_tile) {
+                            return (cursor_x, cursor_y);
+                        }
                     }
                 }
             }
-        }
-
-        from_pos
-    }
-
-    fn find_nearest_tile(&self, from_pos: (i64, i64), looking_for: TileType) -> (i64, i64) {
-        let mut checked: HashSet<(i64, i64)> = HashSet::with_capacity(self.size.0 * self.size.1); // don't like this lazy way, but I couldn't figure it out, just wanted something that worked
-        for distance in 0..self.size.0 as i64 {
-            for off_y in -distance..distance+1 {
-                let cursor_y = from_pos.1 + off_y;
-                if cursor_y < 0 || cursor_y >= self.size.1 as i64 { continue; }
-                for off_x in -distance..distance+1 {
-                    let cursor_x = from_pos.0 + off_x;
-                    if cursor_x < 0 || cursor_x >= self.size.0 as i64 { continue; }
-                    if checked.contains(&(off_x, off_y)) { continue; } // yeah...
-                    else { checked.insert((off_x, off_y)); }
-
-                    let cursor_tile = self.get_tile_at_pos(cursor_x, cursor_y);
-                    if cursor_tile.kind == looking_for { return (cursor_x, cursor_y); }
-                }
-            }
-        }
-
-        from_pos
+            from_pos
     }
 }
 
@@ -338,7 +316,9 @@ impl World {
                                 tile.kind = TileType::Plains; // All trees were chopped down!
                             }
                         } else {
-                            let target = world_tiles.find_nearest_item(peep_pos, Objects::Logs, TileType::City);
+                            let target = world_tiles.find_nearest(peep_pos, |tile| {
+                                tile.kind != TileType::City && tile.check_inventory(Objects::Logs)
+                            });
                             let travel_to = calculate_movement(peep_pos, target);
                             peep.position = travel_to;
                         }
@@ -348,7 +328,7 @@ impl World {
                             let _ = tile.deposit_item(Objects::Logs);
                             peep.holding = None;
                         } else {
-                            let target = world_tiles.find_nearest_tile(peep_pos, TileType::City);
+                            let target = world_tiles.find_nearest(peep_pos, |tile| tile.kind == TileType::City);
                             let travel_to = calculate_movement(peep_pos, target);
                             peep.position = travel_to;
                         }
@@ -360,14 +340,16 @@ impl World {
                             if tile.kind == tile_type {
                                 peep.holding = Some(Objects::Planks); // was holding logs, now holding planks
                             } else {
-                                let target = world_tiles.find_nearest_tile(peep_pos, TileType::City);
+                                let target = world_tiles.find_nearest(peep_pos, |tile| tile.kind == TileType::City);
                                 let travel_to = calculate_movement(peep_pos, target);
                                 peep.position = travel_to;
                             }
                         } else if tile.take_item(Objects::Logs, tile_type) {
                             peep.holding = Some(Objects::Logs);
                         } else {
-                            let target = world_tiles.find_nearest_item(peep_pos, Objects::Logs, TileType::Forest);
+                            let target = world_tiles.find_nearest(peep_pos, |tile| {
+                                tile.kind != TileType::Forest && tile.check_inventory(Objects::Logs)
+                            });
                             let travel_to = calculate_movement(peep_pos, target);
                             peep.position = travel_to;
                         }
@@ -377,7 +359,7 @@ impl World {
                             let _ = tile.deposit_item(Objects::Planks);
                             peep.holding = None;
                         } else {
-                            let target = world_tiles.find_nearest_tile(peep_pos, TileType::City);
+                            let target = world_tiles.find_nearest(peep_pos, |tile| tile.kind == TileType::City);
                             let travel_to = calculate_movement(peep_pos, target);
                             peep.position = travel_to;
                         }
@@ -388,7 +370,9 @@ impl World {
                         if tile.take_item(Objects::Planks, tile_type) {
                             peep.holding = Some(Objects::Planks);
                         } else {
-                            let target = world_tiles.find_nearest_item(peep_pos, Objects::Planks, TileType::Plains);
+                            let target = world_tiles.find_nearest(peep_pos, |tile| {
+                                tile.kind != TileType::Plains && tile.check_inventory(Objects::Planks)
+                            });
                             let travel_to = calculate_movement(peep_pos, target);
                             peep.position = travel_to;
                         }
@@ -402,7 +386,7 @@ impl World {
                                 tile.kind = TileType::City;
                             }
                         } else {
-                            let target = world_tiles.find_nearest_tile(peep_pos, TileType::Plains);
+                            let target = world_tiles.find_nearest(peep_pos, |tile| tile.kind == TileType::Plains);
                             let travel_to = calculate_movement(peep_pos, target);
                             peep.position = travel_to;
                         }
