@@ -347,6 +347,7 @@ impl World {
 
         // Count populations in cities
         let mut new_population: Vec<Peepl> = Vec::new();
+        let mut pairs = 0;
         {
             let world_pops = pop_guard.as_slice();
             let mut pop_counts: HashMap<(i64, i64), u64> = HashMap::new();
@@ -362,6 +363,7 @@ impl World {
 
             for ((x, y), city_pop) in pop_counts.into_iter() {
                 let pairs_of_peepl = city_pop / 2;
+                pairs = pairs_of_peepl;
                 if pairs_of_peepl >= 1 {
                     let mut roll: f64;
                     let chance: u64 = 2;
@@ -375,6 +377,7 @@ impl World {
             }
         }
 
+        println!("there were {} pairs of peepl in {} cities", pairs, cities.len());
         println!("{} newborns during sim step {}", new_population.len(), self.steps);
         pop_guard.append(&mut new_population);
 
