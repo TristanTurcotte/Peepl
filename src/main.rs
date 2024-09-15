@@ -1,15 +1,9 @@
-use std::{collections::{HashMap, HashSet}, fmt::Display, io, time::SystemTime};
+#![allow(clippy::redundant_field_names)]
+use std::{cmp::Ordering, collections::{HashMap, HashSet}, fmt::Display, io, time::SystemTime};
 
 fn main() {
-    let mut jerbs: Vec<(Jobs, usize)> = Vec::new();
-    jerbs.push((Jobs::Carpenter, 1));
-    jerbs.push((Jobs::Miller, 1));
-    jerbs.push((Jobs::Woodcutter, 2));
-
-    let mut tiles: Vec<(TileType, usize)> = Vec::new();
-    tiles.push((TileType::City, 1));
-    tiles.push((TileType::Forest, 6));
-    tiles.push((TileType::Plains, 3));
+    let jerbs: Vec<(Jobs, usize)> = vec![(Jobs::Carpenter, 1), (Jobs::Miller, 1), (Jobs::Woodcutter, 2)];
+    let tiles: Vec<(TileType, usize)> = vec![(TileType::City, 1), (TileType::Forest, 6), (TileType::Plains, 3)];
 
     let world_id = World::generate_world(8, 5, jerbs, tiles);
 
@@ -21,7 +15,7 @@ fn main() {
         println!("\nsim step {}\n{}", world.steps, world);
         world.step_simulation();
         io::stdin().read_line(&mut input_buffer).unwrap();
-        if !input_buffer.to_lowercase().contains("q") {
+        if !input_buffer.to_lowercase().contains('q') {
             input_buffer = "".to_string();
         } else {
             exit = true;
@@ -52,16 +46,6 @@ impl Display for TileType {
             TileType::Plains => write!(f, "p"),
             TileType::Forest => write!(f, "f"),
             TileType::City => write!(f, "c"),
-        }
-    }
-}
-
-impl Into<Tile> for TileType {
-    fn into(self) -> Tile {
-        Tile {
-            kind: self,
-            position: (0, 0),
-            holding: Vec::new(),
         }
     }
 }
@@ -109,11 +93,13 @@ impl Tile {
 }
 
 struct WorldPopulation {
+    #[allow(dead_code)]
     world_id: usize,
     pop: Vec<Peepl>,
 }
 
 struct WorldTiles {
+    #[allow(dead_code)]
     world_id: usize,
     size: (usize, usize),
     tiles: Vec<Tile>,
@@ -137,10 +123,10 @@ impl WorldTiles {
     fn find_nearest_item(&self, from_pos: (usize, usize), looking_for: Objects, ignore_tile_kind: TileType) -> (usize, usize) {
         let mut checked: HashSet<(i32, i32)> = HashSet::with_capacity(self.size.0 * self.size.1); // don't like this lazy way, but I couldn't figure it out, just wanted something that worked
         for distance in 0..self.size.0 as i32 {
-            for off_y in distance*-1..distance+1 {
+            for off_y in -distance..distance+1 {
                 let cursor_y = from_pos.1 as i32 + off_y;
                 if cursor_y < 0 || cursor_y >= self.size.1 as i32 { continue; }
-                for off_x in distance*-1..distance+1 {
+                for off_x in -distance..distance+1 {
                     let cursor_x = from_pos.0 as i32 + off_x;
                     if cursor_x < 0 || cursor_x >= self.size.0 as i32 { continue; }
                     if checked.contains(&(off_x, off_y)) { continue; } // yeah...
@@ -163,10 +149,10 @@ impl WorldTiles {
     fn find_nearest_tile(&self, from_pos: (usize, usize), looking_for: TileType) -> (usize, usize) {
         let mut checked: HashSet<(i32, i32)> = HashSet::with_capacity(self.size.0 * self.size.1); // don't like this lazy way, but I couldn't figure it out, just wanted something that worked
         for distance in 0..self.size.0 as i32 {
-            for off_y in distance*-1..distance+1 {
+            for off_y in -distance..distance+1 {
                 let cursor_y = from_pos.1 as i32 + off_y;
                 if cursor_y < 0 || cursor_y >= self.size.1 as i32 { continue; }
-                for off_x in distance*-1..distance+1 {
+                for off_x in -distance..distance+1 {
                     let cursor_x = from_pos.0 as i32 + off_x;
                     if cursor_x < 0 || cursor_x >= self.size.0 as i32 { continue; }
                     if checked.contains(&(off_x, off_y)) { continue; } // yeah...
@@ -185,12 +171,16 @@ impl WorldTiles {
 }
 
 fn calculate_movement(from: (usize, usize), to: (usize, usize)) -> (usize, usize) {
-    let x_offset = if from.0 > to.0 { -1 }
-                        else if from.0 == to.0 { 0 }
-                        else { 1 };
-    let y_offset = if from.1 > to.1 { -1 }
-                        else if from.1 == to.1 { 0 }
-                        else { 1 };
+    let x_offset = match from.0.cmp(&to.0) {
+        Ordering::Greater => -1,
+        Ordering::Equal => 0,
+        Ordering::Less => 1,
+    };
+    let y_offset = match from.1.cmp(&to.1) {
+        Ordering::Greater => -1,
+        Ordering::Equal => 0,
+        Ordering::Less => 1,
+    };
     let x: usize = (from.0 as i32 + x_offset) as usize;
     let y: usize = (from.1 as i32 + y_offset) as usize;
     (x, y)
@@ -210,6 +200,18 @@ fn get_tiles(index: usize) -> &'static WorldTiles {
 
 fn get_mut_tiles(index: usize) -> &'static mut WorldTiles {
     unsafe { TILES.get_mut(index).unwrap() }
+}
+
+fn calculate_probability<T>(integer_ratios: Vec<(T, usize)>) -> Vec<(T, f32, f32)> {
+    let total_prob = integer_ratios.iter().fold(0, |total, (_, val)| total + val);
+    let mut resulting_probs: Vec<(T, f32, f32)> = Vec::with_capacity(integer_ratios.len());
+    let mut acc: f32 = 0.0;
+    for (item, integer_prob) in integer_ratios {
+        let lower = acc;
+        acc += integer_prob as f32 / total_prob as f32;
+        resulting_probs.push((item, lower, acc));
+    }
+    resulting_probs
 }
 
 struct World {
@@ -256,7 +258,7 @@ impl Display for World {
 }
 
 impl World {
-    fn birth_peep(position: (usize, usize), job_probabilities: &Vec<(Jobs, f32, f32)>) -> Peepl {
+    fn birth_peep(position: (usize, usize), job_probabilities: &[(Jobs, f32, f32)]) -> Peepl {
         let rand_job: f32 = rand::random();
         let mut job_kind = Jobs::Woodcutter;
         for (job, lower, upper) in job_probabilities.iter() {
@@ -271,30 +273,10 @@ impl World {
     /// Generates a world and passes world ID that can be used as index in WORLDS global variable.
     fn generate_world(size: usize, starting_population_per_city: usize, jobs: Vec<(Jobs, usize)>, tile_makeup: Vec<(TileType, usize)>) -> usize {
         // Generate world job probability table
-        let total_job_probability = jobs.iter().fold(0, |total, (_, val) | total + val);
-        let world_jobs = {
-            let mut world_jobs: Vec<(Jobs, f32, f32)> = Vec::with_capacity(jobs.len());
-            let mut acc: f32 = 0.0;
-            for (job, integer_prob) in jobs {
-                let lower = acc;
-                acc = acc + integer_prob as f32 / total_job_probability as f32;
-                world_jobs.push((job, lower, acc));
-            }
-            world_jobs
-        };
+        let world_jobs: Vec<(Jobs, f32, f32)> = calculate_probability(jobs);
 
         // Generate world tiles
-        let total_tile_probability = tile_makeup.iter().fold(0, |total, (_, val) | total + val);
-        let tile_probs = {
-            let mut tile_probs: Vec<(TileType, f32, f32)> = Vec::with_capacity(tile_makeup.len());
-            let mut acc: f32 = 0.0;
-            for (tile_kind, integer_prob) in tile_makeup {
-                let lower = acc;
-                acc = acc + integer_prob as f32 / total_tile_probability as f32;
-                tile_probs.push((tile_kind, lower, acc));
-            }
-            tile_probs
-        };
+        let tile_probs: Vec<(TileType, f32, f32)> = calculate_probability(tile_makeup);
 
         let mut world_tiles: Vec<Tile> = Vec::with_capacity(size*size);
         let mut world_population: Vec<Peepl> = Vec::new();
@@ -384,14 +366,12 @@ impl World {
                                 let travel_to = calculate_movement(peep_pos, target);
                                 peep.position = travel_to;
                             }
+                        } else if tile.take_item(Objects::Logs, tile_type) {
+                            peep.holding = Some(Objects::Logs);
                         } else {
-                            if tile.take_item(Objects::Logs, tile_type) {
-                                peep.holding = Some(Objects::Logs);
-                            } else {
-                                let target = world_tiles.find_nearest_item(peep_pos, Objects::Logs, TileType::Forest);
-                                let travel_to = calculate_movement(peep_pos, target);
-                                peep.position = travel_to;
-                            }
+                            let target = world_tiles.find_nearest_item(peep_pos, Objects::Logs, TileType::Forest);
+                            let travel_to = calculate_movement(peep_pos, target);
+                            peep.position = travel_to;
                         }
                     },
                     Action::Deposit(tile_type) => {
@@ -511,7 +491,7 @@ impl Peepl {
     fn step(&self) -> Action {
         match self.job {
             Jobs::Woodcutter => {
-                if let Some(_) = self.holding {
+                if self.holding.is_some() {
                     Action::Deposit(TileType::City)
                 } else {
                     Action::Gather(TileType::Forest)
@@ -528,7 +508,7 @@ impl Peepl {
                 }
             },
             Jobs::Carpenter => {
-                if let Some(_) = self.holding {
+                if self.holding.is_some() {
                     Action::Deposit(TileType::Plains)
                 } else {
                     Action::Gather(TileType::City)
