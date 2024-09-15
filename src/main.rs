@@ -1,13 +1,11 @@
 #![allow(clippy::redundant_field_names)]
-use std::{cmp::Ordering, collections::{HashMap, HashSet}, fmt::Display, io, time::SystemTime};
+use std::{cmp::Ordering, collections::{HashMap, HashSet}, fmt::Display, io, sync::{Arc, Mutex}, time::SystemTime};
 
 fn main() {
     let jerbs: Vec<(Jobs, usize)> = vec![(Jobs::Carpenter, 1), (Jobs::Miller, 1), (Jobs::Woodcutter, 2)];
     let tiles: Vec<(TileType, usize)> = vec![(TileType::City, 1), (TileType::Forest, 6), (TileType::Plains, 3)];
 
-    let world_id = World::generate_world(8, 5, jerbs, tiles);
-
-    let world = unsafe { WORLDS.get_mut(world_id).unwrap() };
+    let mut world = World::generate_world(8, 5, jerbs, tiles);
 
     let mut exit = false;
     let mut input_buffer = String::new();
@@ -22,10 +20,6 @@ fn main() {
         }
     }
 }
-
-static mut WORLDS: Vec<World> = Vec::new();
-static mut POPULATIONS: Vec<WorldPopulation> = Vec::new();
-static mut TILES: Vec<WorldTiles> = Vec::new();
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum Objects {
@@ -92,60 +86,6 @@ impl Tile {
     }
 }
 
-struct WorldPopulation {
-    #[allow(dead_code)]
-    world_id: usize,
-    pop: Vec<Peepl>,
-}
-
-struct WorldTiles {
-    #[allow(dead_code)]
-    world_id: usize,
-    size: (usize, usize),
-    tiles: Vec<Tile>,
-}
-
-impl WorldTiles {
-    fn get_tile_index(&self, x: usize, y: usize) -> usize {
-        y * self.size.1 + x
-    }
-    
-    fn get_tile_at_pos(&self, x: i64, y: i64) -> &Tile {
-        assert!(x >= 0 && y >= 0, "Position values should always be positive.");
-        let index = self.get_tile_index(x as usize, y as usize);
-        &self.tiles[index]
-    }
-    
-    fn get_mut_tile_at_pos(&mut self, x: i64, y: i64) -> &mut Tile {
-        assert!(x >= 0 && y >= 0, "Position values should always be positive.");
-        let index = self.get_tile_index(x as usize, y as usize);
-        &mut self.tiles[index]
-    }
-
-    fn find_nearest<F>(&self, from_pos: (i64, i64), check: F) -> (i64, i64)
-        where F: Fn(&Tile) -> bool  {
-            let mut checked: HashSet<(i64, i64)> = HashSet::with_capacity(self.size.0 * self.size.1); // don't like this lazy way, but I couldn't figure it out, just wanted something that worked
-            for distance in 0..self.size.0 as i64 {
-                for off_y in -distance..distance+1 {
-                    let cursor_y = from_pos.1 + off_y;
-                    if cursor_y < 0 || cursor_y >= self.size.1 as i64 { continue; }
-                    for off_x in -distance..distance+1 {
-                        let cursor_x = from_pos.0 + off_x;
-                        if cursor_x < 0 || cursor_x >= self.size.0 as i64 { continue; }
-                        if checked.contains(&(off_x, off_y)) { continue; } // yeah...
-                        else { checked.insert((off_x, off_y)); }
-
-                        let cursor_tile = self.get_tile_at_pos(cursor_x, cursor_y);
-                        if check(cursor_tile) {
-                            return (cursor_x, cursor_y);
-                        }
-                    }
-                }
-            }
-            from_pos
-    }
-}
-
 fn calculate_movement(from: (i64, i64), to: (i64, i64)) -> (i64, i64) {
     let x_offset = match from.0.cmp(&to.0) {
         Ordering::Greater => -1,
@@ -162,22 +102,6 @@ fn calculate_movement(from: (i64, i64), to: (i64, i64)) -> (i64, i64) {
     (x, y)
 }
 
-fn get_population(index: usize) -> &'static WorldPopulation {
-    unsafe { POPULATIONS.get(index).unwrap() }
-}
-
-fn get_mut_population(index: usize) -> &'static mut WorldPopulation {
-    unsafe { POPULATIONS.get_mut(index).unwrap() }
-}
-
-fn get_tiles(index: usize) -> &'static WorldTiles {
-    unsafe { TILES.get(index).unwrap() }
-}
-
-fn get_mut_tiles(index: usize) -> &'static mut WorldTiles {
-    unsafe { TILES.get_mut(index).unwrap() }
-}
-
 fn calculate_probability<T>(integer_ratios: Vec<(T, usize)>) -> Vec<(T, f32, f32)> {
     let total_prob = integer_ratios.iter().fold(0, |total, (_, val)| total + val);
     let mut resulting_probs: Vec<(T, f32, f32)> = Vec::with_capacity(integer_ratios.len());
@@ -191,21 +115,29 @@ fn calculate_probability<T>(integer_ratios: Vec<(T, usize)>) -> Vec<(T, f32, f32
 }
 
 struct World {
+    #[allow(dead_code)]
     world_id: usize,
-    job_probabilities: Vec<(Jobs, f32, f32)>,
     steps: usize,
+
+    world_size: (usize, usize),
+    tiles: Arc<Mutex<Vec<Tile>>>,
+
+    population: Arc<Mutex<Vec<Peepl>>>,
+    job_probabilities: Vec<(Jobs, f32, f32)>,
 }
 
 impl Display for World {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // size data from TILES data
-        let tiles = get_tiles(self.world_id);
-        let size = tiles.size;
+        let tiles_guard = self.tiles.lock().unwrap();
+        let tiles = tiles_guard.as_slice();
+        let size = self.world_size;
         let width = size.0 as i64;
         let height = size.1 as i64;
 
         // population data from POPULATIONS data
-        let pop = &get_population(self.world_id).pop;
+        let pop_guard = self.population.lock().unwrap();
+        let pop = pop_guard.as_slice();
 
         write!(f, "({}, {})\t", width, height)?;
         writeln!(f, "World population is {}: ", pop.len())?;
@@ -223,7 +155,7 @@ impl Display for World {
         writeln!(f)?;
         for y in 0..height {
             for x in 0..width {
-                write!(f, "{}", tiles.get_tile_at_pos(x, y).kind)?;
+                write!(f, "{}", &tiles[self.get_tile_index(x, y)].kind)?;
             }
             writeln!(f)?;
         }
@@ -247,7 +179,7 @@ impl World {
     }
 
     /// Generates a world and passes world ID that can be used as index in WORLDS global variable.
-    fn generate_world(size: usize, starting_population_per_city: usize, jobs: Vec<(Jobs, usize)>, tile_makeup: Vec<(TileType, usize)>) -> usize {
+    fn generate_world(size: usize, starting_population_per_city: usize, jobs: Vec<(Jobs, usize)>, tile_makeup: Vec<(TileType, usize)>) -> World {
         // Generate world job probability table
         let world_jobs: Vec<(Jobs, f32, f32)> = calculate_probability(jobs);
 
@@ -286,26 +218,28 @@ impl World {
             }
         }
 
-        let id = unsafe { WORLDS.len() };
-        let world = World { world_id: id, job_probabilities: world_jobs, steps: 0 };
-        unsafe {
-            WORLDS.push(world);
-            POPULATIONS.push(WorldPopulation { world_id: id, pop: world_population });
-            TILES.push(WorldTiles { world_id: id, size: (size, size), tiles: world_tiles });
+        World {
+            world_id: 0,
+            steps: 0,
+            world_size: (size, size),
+            tiles: Arc::new(Mutex::new(world_tiles)),
+            population: Arc::new(Mutex::new(world_population)),
+            job_probabilities: world_jobs,
         }
-
-        id
     }
 
     fn step_simulation(&mut self) {
         let stopwatch = SystemTime::now();
 
-        let world_tiles = get_mut_tiles(self.world_id);
+        let mut tiles_guard = self.tiles.lock().unwrap();
+        let world_tiles = tiles_guard.as_mut_slice();
+
+        let mut pop_guard = self.population.lock().unwrap();
 
         // Sim all population
-        for peep in get_mut_population(self.world_id).pop.iter_mut() {
+        for peep in pop_guard.as_mut_slice() {
             let task = peep.step();
-            let tile = world_tiles.get_mut_tile_at_pos(peep.position.0, peep.position.1);
+            let tile = &mut world_tiles[self.get_tile_index(peep.position.0, peep.position.1)];
             let peep_pos = (peep.position.0, peep.position.1);
             match peep.job { // TODO: Refactor code so there is less repetition to lower surface area for errors and streamline logic
                 Jobs::Woodcutter => match task {
@@ -316,7 +250,7 @@ impl World {
                                 tile.kind = TileType::Plains; // All trees were chopped down!
                             }
                         } else {
-                            let target = world_tiles.find_nearest(peep_pos, |tile| {
+                            let target = self.find_nearest(world_tiles, peep_pos, |tile| {
                                 tile.kind != TileType::City && tile.check_inventory(Objects::Logs)
                             });
                             let travel_to = calculate_movement(peep_pos, target);
@@ -328,7 +262,7 @@ impl World {
                             let _ = tile.deposit_item(Objects::Logs);
                             peep.holding = None;
                         } else {
-                            let target = world_tiles.find_nearest(peep_pos, |tile| tile.kind == TileType::City);
+                            let target = self.find_nearest(world_tiles, peep_pos, |tile| tile.kind == TileType::City);
                             let travel_to = calculate_movement(peep_pos, target);
                             peep.position = travel_to;
                         }
@@ -340,14 +274,14 @@ impl World {
                             if tile.kind == tile_type {
                                 peep.holding = Some(Objects::Planks); // was holding logs, now holding planks
                             } else {
-                                let target = world_tiles.find_nearest(peep_pos, |tile| tile.kind == TileType::City);
+                                let target = self.find_nearest(world_tiles, peep_pos, |tile| tile.kind == TileType::City);
                                 let travel_to = calculate_movement(peep_pos, target);
                                 peep.position = travel_to;
                             }
                         } else if tile.take_item(Objects::Logs, tile_type) {
                             peep.holding = Some(Objects::Logs);
                         } else {
-                            let target = world_tiles.find_nearest(peep_pos, |tile| {
+                            let target = self.find_nearest(world_tiles, peep_pos, |tile| {
                                 tile.kind != TileType::Forest && tile.check_inventory(Objects::Logs)
                             });
                             let travel_to = calculate_movement(peep_pos, target);
@@ -359,7 +293,7 @@ impl World {
                             let _ = tile.deposit_item(Objects::Planks);
                             peep.holding = None;
                         } else {
-                            let target = world_tiles.find_nearest(peep_pos, |tile| tile.kind == TileType::City);
+                            let target = self.find_nearest(world_tiles, peep_pos, |tile| tile.kind == TileType::City);
                             let travel_to = calculate_movement(peep_pos, target);
                             peep.position = travel_to;
                         }
@@ -370,7 +304,7 @@ impl World {
                         if tile.take_item(Objects::Planks, tile_type) {
                             peep.holding = Some(Objects::Planks);
                         } else {
-                            let target = world_tiles.find_nearest(peep_pos, |tile| {
+                            let target = self.find_nearest(world_tiles, peep_pos, |tile| {
                                 tile.kind != TileType::Plains && tile.check_inventory(Objects::Planks)
                             });
                             let travel_to = calculate_movement(peep_pos, target);
@@ -386,7 +320,7 @@ impl World {
                                 tile.kind = TileType::City;
                             }
                         } else {
-                            let target = world_tiles.find_nearest(peep_pos, |tile| tile.kind == TileType::Plains);
+                            let target = self.find_nearest(world_tiles, peep_pos, |tile| tile.kind == TileType::Plains);
                             let travel_to = calculate_movement(peep_pos, target);
                             peep.position = travel_to;
                         }
@@ -403,7 +337,7 @@ impl World {
         // Get city tiles in world
         let cities = {
             let mut c = Vec::new();
-            for tile in world_tiles.tiles.iter() {
+            for tile in world_tiles.iter() {
                 if tile.kind == TileType::City {
                     c.push(tile.position);
                 }
@@ -412,41 +346,69 @@ impl World {
         };
 
         // Count populations in cities
-        let world_pops = get_population(self.world_id);
-        let mut pop_counts: HashMap<(i64, i64), u64> = HashMap::new();
-        for peep in world_pops.pop.iter() {
-            if cities.contains(&peep.position) {
-                if let Some(city_pop) = pop_counts.get_mut(&peep.position) {
-                    *city_pop += 1;
-                } else {
-                    pop_counts.insert(peep.position, 1);
+        let mut new_population: Vec<Peepl> = Vec::new();
+        {
+            let world_pops = pop_guard.as_slice();
+            let mut pop_counts: HashMap<(i64, i64), u64> = HashMap::new();
+            for peep in world_pops.iter() {
+                if cities.contains(&peep.position) {
+                    if let Some(city_pop) = pop_counts.get_mut(&peep.position) {
+                        *city_pop += 1;
+                    } else {
+                        pop_counts.insert(peep.position, 1);
+                    }
                 }
             }
-        }
 
-        let mut new_population: Vec<Peepl> = Vec::new();
-        for ((x, y), city_pop) in pop_counts.into_iter() {
-            let pairs_of_peepl = city_pop / 2;
-            if pairs_of_peepl >= 1 {
-                let mut roll: f64;
-                let chance: u64 = 2;
-                for _ in 0..pairs_of_peepl {
-                    roll = rand::random::<f64>() * 1000.0;
-                    if chance >= roll as u64 {
-                        new_population.push(World::birth_peep((x, y), &self.job_probabilities))
+            for ((x, y), city_pop) in pop_counts.into_iter() {
+                let pairs_of_peepl = city_pop / 2;
+                if pairs_of_peepl >= 1 {
+                    let mut roll: f64;
+                    let chance: u64 = 2;
+                    for _ in 0..pairs_of_peepl {
+                        roll = rand::random::<f64>() * 1000.0;
+                        if chance >= roll as u64 {
+                            new_population.push(World::birth_peep((x, y), &self.job_probabilities))
+                        }
                     }
                 }
             }
         }
 
         println!("{} newborns during sim step {}", new_population.len(), self.steps);
-        let world_pops = get_mut_population(self.world_id);
-        for peep in new_population {
-            world_pops.pop.push(peep);
-        }
+        pop_guard.append(&mut new_population);
 
         println!("Simulation step {} took... {:?}", self.steps, stopwatch.elapsed().unwrap());
         self.steps += 1;
+    }
+
+    /// x and y must be >= 0
+    fn get_tile_index(&self, x: i64, y: i64) -> usize {
+        assert!(x >= 0 && y >= 0, "Coordinates must be positive to calculate index.");
+        (y * self.world_size.1 as i64 + x) as usize
+    }
+
+    fn find_nearest<F>(&self, tiles: &[Tile], from_pos: (i64, i64), check: F) -> (i64, i64)
+        where F: Fn(&Tile) -> bool  {
+            let mut checked: HashSet<(i64, i64)> = HashSet::with_capacity(self.world_size.0 * self.world_size.1); // don't like this lazy way, but I couldn't figure it out, just wanted something that worked
+            for distance in 0..self.world_size.0 as i64 {
+                for off_y in -distance..distance+1 {
+                    let cursor_y = from_pos.1 + off_y;
+                    if cursor_y < 0 || cursor_y >= self.world_size.1 as i64 { continue; }
+                    for off_x in -distance..distance+1 {
+                        let cursor_x = from_pos.0 + off_x;
+                        if cursor_x < 0 || cursor_x >= self.world_size.0 as i64 { continue; }
+                        if checked.contains(&(off_x, off_y)) { continue; } // yeah...
+                        else { checked.insert((off_x, off_y)); }
+
+                        let cursor_tile = &tiles[self.get_tile_index(cursor_x, cursor_y)];
+                        if check(cursor_tile) {
+                            return (cursor_x, cursor_y);
+                        }
+                    }
+                }
+            }
+            from_pos
     }
 }
 
