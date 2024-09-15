@@ -53,7 +53,7 @@ impl Display for TileType {
 #[derive(Debug)]
 struct Tile {
     kind: TileType,
-    position: (usize, usize), // TODO: Position being usize is not worth the trouble of constantly casting, should be i64 or i32
+    position: (i64, i64),
     holding: Vec<(Objects, u64)>,
 }
 
@@ -110,30 +110,30 @@ impl WorldTiles {
         y * self.size.1 + x
     }
     
-    fn get_tile_at_pos(&self, x: usize, y: usize) -> &Tile {
-        let index = self.get_tile_index(x, y);
+    fn get_tile_at_pos(&self, x: i64, y: i64) -> &Tile {
+        assert!(x >= 0 && y >= 0, "Position values should always be positive.");
+        let index = self.get_tile_index(x as usize, y as usize);
         &self.tiles[index]
     }
     
-    fn get_mut_tile_at_pos(&mut self, x: usize, y: usize) -> &mut Tile {
-        let index = self.get_tile_index(x, y);
+    fn get_mut_tile_at_pos(&mut self, x: i64, y: i64) -> &mut Tile {
+        assert!(x >= 0 && y >= 0, "Position values should always be positive.");
+        let index = self.get_tile_index(x as usize, y as usize);
         &mut self.tiles[index]
     }
 
-    fn find_nearest_item(&self, from_pos: (usize, usize), looking_for: Objects, ignore_tile_kind: TileType) -> (usize, usize) {
-        let mut checked: HashSet<(i32, i32)> = HashSet::with_capacity(self.size.0 * self.size.1); // don't like this lazy way, but I couldn't figure it out, just wanted something that worked
-        for distance in 0..self.size.0 as i32 {
+    fn find_nearest_item(&self, from_pos: (i64, i64), looking_for: Objects, ignore_tile_kind: TileType) -> (i64, i64) {
+        let mut checked: HashSet<(i64, i64)> = HashSet::with_capacity(self.size.0 * self.size.1); // don't like this lazy way, but I couldn't figure it out, just wanted something that worked
+        for distance in 0..self.size.0 as i64 {
             for off_y in -distance..distance+1 {
-                let cursor_y = from_pos.1 as i32 + off_y;
-                if cursor_y < 0 || cursor_y >= self.size.1 as i32 { continue; }
+                let cursor_y = from_pos.1 + off_y;
+                if cursor_y < 0 || cursor_y >= self.size.1 as i64 { continue; }
                 for off_x in -distance..distance+1 {
-                    let cursor_x = from_pos.0 as i32 + off_x;
-                    if cursor_x < 0 || cursor_x >= self.size.0 as i32 { continue; }
+                    let cursor_x = from_pos.0 + off_x;
+                    if cursor_x < 0 || cursor_x >= self.size.0 as i64 { continue; }
                     if checked.contains(&(off_x, off_y)) { continue; } // yeah...
                     else { checked.insert((off_x, off_y)); }
 
-                    let cursor_x: usize = cursor_x as usize;
-                    let cursor_y: usize = cursor_y as usize;
                     let cursor_tile = self.get_tile_at_pos(cursor_x, cursor_y);
                     if cursor_tile.kind == ignore_tile_kind { continue; }
                     else if cursor_tile.check_inventory(looking_for) {
@@ -146,20 +146,18 @@ impl WorldTiles {
         from_pos
     }
 
-    fn find_nearest_tile(&self, from_pos: (usize, usize), looking_for: TileType) -> (usize, usize) {
-        let mut checked: HashSet<(i32, i32)> = HashSet::with_capacity(self.size.0 * self.size.1); // don't like this lazy way, but I couldn't figure it out, just wanted something that worked
-        for distance in 0..self.size.0 as i32 {
+    fn find_nearest_tile(&self, from_pos: (i64, i64), looking_for: TileType) -> (i64, i64) {
+        let mut checked: HashSet<(i64, i64)> = HashSet::with_capacity(self.size.0 * self.size.1); // don't like this lazy way, but I couldn't figure it out, just wanted something that worked
+        for distance in 0..self.size.0 as i64 {
             for off_y in -distance..distance+1 {
-                let cursor_y = from_pos.1 as i32 + off_y;
-                if cursor_y < 0 || cursor_y >= self.size.1 as i32 { continue; }
+                let cursor_y = from_pos.1 + off_y;
+                if cursor_y < 0 || cursor_y >= self.size.1 as i64 { continue; }
                 for off_x in -distance..distance+1 {
-                    let cursor_x = from_pos.0 as i32 + off_x;
-                    if cursor_x < 0 || cursor_x >= self.size.0 as i32 { continue; }
+                    let cursor_x = from_pos.0 + off_x;
+                    if cursor_x < 0 || cursor_x >= self.size.0 as i64 { continue; }
                     if checked.contains(&(off_x, off_y)) { continue; } // yeah...
                     else { checked.insert((off_x, off_y)); }
 
-                    let cursor_x: usize = cursor_x as usize;
-                    let cursor_y: usize = cursor_y as usize;
                     let cursor_tile = self.get_tile_at_pos(cursor_x, cursor_y);
                     if cursor_tile.kind == looking_for { return (cursor_x, cursor_y); }
                 }
@@ -170,7 +168,7 @@ impl WorldTiles {
     }
 }
 
-fn calculate_movement(from: (usize, usize), to: (usize, usize)) -> (usize, usize) {
+fn calculate_movement(from: (i64, i64), to: (i64, i64)) -> (i64, i64) {
     let x_offset = match from.0.cmp(&to.0) {
         Ordering::Greater => -1,
         Ordering::Equal => 0,
@@ -181,8 +179,8 @@ fn calculate_movement(from: (usize, usize), to: (usize, usize)) -> (usize, usize
         Ordering::Equal => 0,
         Ordering::Less => 1,
     };
-    let x: usize = (from.0 as i32 + x_offset) as usize;
-    let y: usize = (from.1 as i32 + y_offset) as usize;
+    let x = from.0 + x_offset;
+    let y = from.1 + y_offset;
     (x, y)
 }
 
@@ -225,8 +223,8 @@ impl Display for World {
         // size data from TILES data
         let tiles = get_tiles(self.world_id);
         let size = tiles.size;
-        let width = size.0;
-        let height = size.1;
+        let width = size.0 as i64;
+        let height = size.1 as i64;
 
         // population data from POPULATIONS data
         let pop = &get_population(self.world_id).pop;
@@ -258,7 +256,7 @@ impl Display for World {
 }
 
 impl World {
-    fn birth_peep(position: (usize, usize), job_probabilities: &[(Jobs, f32, f32)]) -> Peepl {
+    fn birth_peep(position: (i64, i64), job_probabilities: &[(Jobs, f32, f32)]) -> Peepl {
         let rand_job: f32 = rand::random();
         let mut job_kind = Jobs::Woodcutter;
         for (job, lower, upper) in job_probabilities.iter() {
@@ -280,8 +278,8 @@ impl World {
 
         let mut world_tiles: Vec<Tile> = Vec::with_capacity(size*size);
         let mut world_population: Vec<Peepl> = Vec::new();
-        for y in 0..size {
-            for x in 0..size {
+        for y in 0..size as i64 {
+            for x in 0..size as i64 {
                 let rand_tile: f32 = rand::random();
                 let mut tile_kind = TileType::Plains;
                 for (kind, lower, upper) in tile_probs.iter() {
@@ -431,7 +429,7 @@ impl World {
 
         // Count populations in cities
         let world_pops = get_population(self.world_id);
-        let mut pop_counts: HashMap<(usize, usize), u64> = HashMap::new();
+        let mut pop_counts: HashMap<(i64, i64), u64> = HashMap::new();
         for peep in world_pops.pop.iter() {
             if cities.contains(&peep.position) {
                 if let Some(city_pop) = pop_counts.get_mut(&peep.position) {
@@ -482,7 +480,7 @@ enum Action {
 
 #[derive(Debug)]
 struct Peepl {
-    position: (usize, usize), // TODO: Position being usize is not worth the trouble of constantly casting, should be i64 or i32
+    position: (i64, i64),
     holding: Option<Objects>,
     job: Jobs,
 }
